@@ -1,0 +1,13 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {safeReminder,dueNotification,addDays,configuration,authorized,hash,localParts} from '../netlify/lib/reminder-core.mjs';
+const r={nextDate:'2026-11-06',cycleDays:28,advanceDays:2,hour:9,timezone:'America/Chicago',style:'private'};
+test('validates reminder inputs',()=>{assert.deepEqual(safeReminder(r),r);assert.equal(safeReminder({...r,timezone:'invalid'}),null);assert.equal(safeReminder({...r,advanceDays:99}),null);assert.equal(safeReminder({...r,nextDate:'2026-02-30'}),null)});
+test('delivers discreet advance reminder on correct local day/hour',()=>{const d=dueNotification(r,new Date('2026-11-04T15:03:00Z'));assert.equal(d.send,true);assert.match(d.payload.body,/private check-in/);assert.doesNotMatch(d.payload.body,/period|bleed/i)});
+test('does not repeat once marked sent',()=>{const d=dueNotification(r,new Date('2026-11-04T15:03:00Z'));assert.equal(dueNotification(r,new Date('2026-11-04T15:13:00Z'),d.key).send,false)});
+test('prevents premature and wrong-hour notifications',()=>{assert.equal(dueNotification(r,new Date('2026-11-03T15:00:00Z')).send,false);assert.equal(dueNotification(r,new Date('2026-11-04T14:00:00Z')).send,false)});
+test('handles future cycles and leap day',()=>{assert.equal(addDays('2028-02-28',1),'2028-02-29');const future=dueNotification({...r,nextDate:'2026-10-09'},new Date('2026-11-04T15:00:00Z'));assert.equal(future.nextDate,'2026-11-06');assert.equal(future.send,true)});
+test('explicit style mentions predicted period',()=>{const d=dueNotification({...r,style:'explicit'},new Date('2026-11-04T15:00:00Z'));assert.match(d.payload.body,/period is estimated/)});
+test('verifies secrets without leaking',()=>{const token='a'.repeat(64);assert.equal(authorized(token,hash(token)),true);assert.equal(authorized('b'.repeat(64),hash(token)),false)});
+test('validates matching VAPID keys',()=>{assert.equal(configuration({}).ready,false)});
+test('DST-safe local time format',()=>{assert.equal(localParts(new Date('2026-11-04T15:00:00Z'),'America/Chicago').hour,9)});
